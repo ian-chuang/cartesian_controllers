@@ -274,12 +274,13 @@ computeJointControlCmds(const ctrl::Vector6D& error, const ros::Duration& period
 
 template <class HardwareInterface>
 void CartesianControllerBase<HardwareInterface>::
-computeJointControlCmds(const std::string& ref, const ctrl::Vector6D& error, const ros::Duration& period)
+computeJointControlCmds(bool hand_frame_control, const ctrl::Vector6D& error, const ros::Duration& period)
 {
   // PD controlled system input
   m_cartesian_input = m_error_scale * m_spatial_controller(error,period);
 
-  displayInBaseLink(m_cartesian_input, ref);
+  if (hand_frame_control)
+    m_cartesian_input = displayInBaseLink(m_cartesian_input, m_end_effector_link);
 
   // Simulate one step forward
   m_simulated_joint_motion = m_ik_solver->getJointControlCmds(

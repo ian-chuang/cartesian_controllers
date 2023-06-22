@@ -123,7 +123,7 @@ class CartesianControllerBase : public controller_interface::Controller<Hardware
      * @param error The error to minimize
      * @param period The period for this control cycle
      */
-    void computeJointControlCmds(const std::string& ref, const ctrl::Vector6D& error, const ros::Duration& period);
+    void computeJointControlCmds(bool hand_frame_control, const ctrl::Vector6D& error, const ros::Duration& period);
 
     /**
      * @brief Display the given vector in the given robot base link

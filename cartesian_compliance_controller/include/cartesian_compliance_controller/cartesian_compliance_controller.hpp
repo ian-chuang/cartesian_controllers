@@ -119,16 +119,8 @@ update(const ros::Time& time, const ros::Duration& period)
     // Compute the net force
     ctrl::Vector6D error = computeComplianceError();
     
-    if (m_hand_frame_control) {
-      Base::computeJointControlCmds(Base::m_end_effector_link, error,internal_period);
-    }
-    else {
-      Base::computeJointControlCmds(Base::m_robot_base_link, error,internal_period);
-    }
-     
-
     // Turn Cartesian error into joint motion
-    
+    Base::computeJointControlCmds(m_hand_frame_control, error,internal_period);
   }
 
   // Write final commands to the hardware interface
@@ -142,9 +134,11 @@ computeComplianceError()
   ctrl::Vector6D motion_error, force_error, compliance_error;
 
   if (m_hand_frame_control) {
-    motion_error = Base::displayInTipLink(MotionBase::computeMotionError(), Base::m_robot_base_link); // motion error in compliance reference
+    motion_error = Base::displayInTipLink(MotionBase::computeMotionError(), Base::m_end_effector_link); // motion error in compliance reference
     force_error = ForceBase::m_ft_sensor_wrench + ForceBase::m_target_wrench;
     compliance_error = m_stiffness * motion_error + force_error;
+
+    ROS_INFO("HAND_CONTROL ACTIVATED");
   }
   else {
     motion_error = MotionBase::computeMotionError();
