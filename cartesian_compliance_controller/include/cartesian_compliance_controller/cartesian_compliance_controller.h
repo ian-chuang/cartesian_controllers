@@ -73,6 +73,7 @@ namespace cartesian_compliance_controller
  *
  * @tparam HardwareInterface The interface to support. Either PositionJointInterface or VelocityJointInterface
  */
+
 template <class HardwareInterface>
 class CartesianComplianceController
 : public cartesian_motion_controller::CartesianMotionController<HardwareInterface>
@@ -101,8 +102,16 @@ class CartesianComplianceController
      */
     ctrl::Vector6D        computeComplianceError();
 
+    std::array<int, 6>    m_axes_control_type;
     ctrl::Matrix6D        m_stiffness;
-    std::string           m_compliance_ref_link;
+
+    /**
+     * Allow users to choose whether to specify their target wrenches in the
+     * end-effector frame (= True) or the base frame (= False). The first one
+     * is easier for explicit task programming, while the second one is more
+     * intuitive for tele-manipulation.
+     */
+    bool m_hand_frame_control;
 
     // Dynamic reconfigure for stiffness
     typedef cartesian_compliance_controller::ComplianceControllerConfig

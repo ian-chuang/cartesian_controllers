@@ -57,7 +57,7 @@ CartesianComplianceController()
 // explicitly
 : Base::CartesianControllerBase(),
   MotionBase::CartesianMotionController(),
-  ForceBase::CartesianForceController()
+  ForceBase::CartesianForceController(), m_hand_frame_control(true)
 {
 }
 
@@ -68,24 +68,6 @@ init(HardwareInterface* hw, ros::NodeHandle& nh)
   // Only one of them will call Base::init(hw,nh);
   MotionBase::init(hw,nh);
   ForceBase::init(hw,nh);
-
-  if (!nh.getParam("compliance_ref_link",m_compliance_ref_link))
-  {
-    ROS_ERROR_STREAM("Failed to load " << nh.getNamespace() + "/compliance_ref_link" << " from parameter server");
-    return false;
-  }
-
-  // Make sure compliance link is part of the robot chain
-  if(!Base::robotChainContains(m_compliance_ref_link))
-  {
-    ROS_ERROR_STREAM(m_compliance_ref_link << " is not part of the kinematic chain from "
-                                           << Base::m_robot_base_link << " to "
-                                           << Base::m_end_effector_link);
-    return false;
-  }
-
-  // Make sure sensor wrenches are interpreted correctly
-  ForceBase::setFtSensorReferenceFrame(m_compliance_ref_link);
 
   // Connect dynamic reconfigure and overwrite the default values with values
   // on the parameter server. This is done automatically if parameters with
@@ -136,9 +118,17 @@ update(const ros::Time& time, const ros::Duration& period)
 
     // Compute the net force
     ctrl::Vector6D error = computeComplianceError();
+    
+    if (m_hand_frame_control) {
+      Base::computeJointControlCmds(Base::m_end_effector_link, error,internal_period);
+    }
+    else {
+      Base::computeJointControlCmds(Base::m_robot_base_link, error,internal_period);
+    }
+     
 
     // Turn Cartesian error into joint motion
-    Base::computeJointControlCmds(error,internal_period);
+    
   }
 
   // Write final commands to the hardware interface
@@ -149,15 +139,38 @@ template <class HardwareInterface>
 ctrl::Vector6D CartesianComplianceController<HardwareInterface>::
 computeComplianceError()
 {
-  ctrl::Vector6D net_force =
+  ctrl::Vector6D motion_error, force_error, compliance_error;
 
-    // Spring force in base orientation
-    Base::displayInBaseLink(m_stiffness,m_compliance_ref_link) * MotionBase::computeMotionError()
+  if (m_hand_frame_control) {
+    motion_error = Base::displayInTipLink(MotionBase::computeMotionError(), Base::m_robot_base_link); // motion error in compliance reference
+    force_error = ForceBase::m_ft_sensor_wrench + ForceBase::m_target_wrench;
+    compliance_error = m_stiffness * motion_error + force_error;
+  }
+  else {
+    motion_error = MotionBase::computeMotionError();
+    force_error = Base::displayInBaseLink(ForceBase::m_ft_sensor_wrench,Base::m_end_effector_link) + ForceBase::m_target_wrench;
+    compliance_error = m_stiffness * motion_error + force_error;
+  }
 
-    // Sensor and target force in base orientation
-    + ForceBase::computeForceError();
+  ctrl::Vector6D net_error;
+  for (unsigned int i = 0; i < m_axes_control_type.size(); i++) {
+    switch(m_axes_control_type.at(i)) {
+      case 0:
+        net_error[i] = 0;
+        break;
+      case 1:
+        net_error[i] = motion_error[i];
+        break;
+      case 2:
+        net_error[i] = force_error[i];
+        break;
+      case 3:
+        net_error[i] = compliance_error[i];
+        break;
+    }
+  }
 
-  return net_force;
+  return net_error;
 }
 
 template <class HardwareInterface>
@@ -172,6 +185,15 @@ dynamicReconfigureCallback(ComplianceConfig& config, uint32_t level)
   tmp[4] = config.rot_y;
   tmp[5] = config.rot_z;
   m_stiffness = tmp.asDiagonal();
+
+  m_axes_control_type[0] = config.control_trans_x;
+  m_axes_control_type[1] = config.control_trans_y;
+  m_axes_control_type[2] = config.control_trans_z;
+  m_axes_control_type[3] = config.control_rot_x;
+  m_axes_control_type[4] = config.control_rot_y;
+  m_axes_control_type[5] = config.control_rot_z;
+
+  m_hand_frame_control = config.hand_frame_control;
 }
 
 } // namespace
