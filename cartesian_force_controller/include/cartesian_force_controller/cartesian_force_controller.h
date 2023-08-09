@@ -45,11 +45,15 @@
 
 // ROS
 #include <std_srvs/Trigger.h>
+#include <realtime_tools/realtime_publisher.h>
 
 // Dynamic reconfigure
 #include <dynamic_reconfigure/server.h>
 #include <cartesian_controller_base/ForwardDynamicsSolverConfig.h>
 #include <cartesian_force_controller/CartesianForceControllerConfig.h>
+
+// Low pass filter
+#include <cartesian_force_controller/low_pass_filter.h>
 
 namespace cartesian_force_controller
 {
@@ -103,6 +107,17 @@ class CartesianForceController : public virtual cartesian_controller_base::Carte
     std::string           m_new_ft_sensor_ref;
     void setFtSensorReferenceFrame(const std::string& new_ref);
 
+    /**
+     * @brief Publish the controller's end-effector pose and twist
+     *
+     * The data are w.r.t. the specified robot base link.
+     * If this function is called after `computeJointControlCmds()` has
+     * been called, then the controller's internal state represents the state
+     * right after the error computation, and corresponds to the new target
+     * state that will be send to the actuators in this control cycle.
+     */
+    void publishStateFeedback();
+
   private:
     ctrl::Vector6D        compensateGravity();
 
@@ -115,6 +130,7 @@ class CartesianForceController : public virtual cartesian_controller_base::Carte
     ros::Subscriber       m_ft_sensor_wrench_subscriber;
     ctrl::Vector6D        m_target_wrench;
     ctrl::Vector6D        m_ft_sensor_wrench;
+    ctrl::Vector6D        m_ft_sensor_wrench_filtered;
     ctrl::Vector6D        m_weight_force;
     ctrl::Vector6D        m_grav_comp_during_taring;
     ctrl::Vector3D        m_center_of_mass;
@@ -129,6 +145,8 @@ class CartesianForceController : public virtual cartesian_controller_base::Carte
      */
     bool m_hand_frame_control;
 
+    std::vector<LowPassFilter> m_wrench_filters;
+
     // Force control specific dynamic reconfigure
     typedef cartesian_force_controller::CartesianForceControllerConfig Config;
 
@@ -136,6 +154,9 @@ class CartesianForceController : public virtual cartesian_controller_base::Carte
 
     std::shared_ptr<dynamic_reconfigure::Server<Config> > m_dyn_conf_server;
     dynamic_reconfigure::Server<Config>::CallbackType m_callback_type;
+
+    realtime_tools::RealtimePublisherSharedPtr<geometry_msgs::WrenchStamped>
+      m_feedback_wrench_filtered_publisher;
 };
 
 }

@@ -81,10 +81,6 @@ init(HardwareInterface* hw, ros::NodeHandle& nh)
   // Make sure sensor wrenches are interpreted correctly
   setFtSensorReferenceFrame(Base::m_end_effector_link);
 
-  m_signal_taring_server = nh.advertiseService("signal_taring",&CartesianForceController<HardwareInterface>::signalTaringCallback,this);
-  m_target_wrench_subscriber = nh.subscribe("target_wrench",2,&CartesianForceController<HardwareInterface>::targetWrenchCallback,this);
-  m_ft_sensor_wrench_subscriber = nh.subscribe("ft_sensor_wrench",2,&CartesianForceController<HardwareInterface>::ftSensorWrenchCallback,this);
-
   // Initialize tool and gravity compensation
   std::map<std::string, double> gravity;
   if (!nh.getParam("gravity",gravity))
@@ -123,6 +119,14 @@ init(HardwareInterface* hw, ros::NodeHandle& nh)
       new dynamic_reconfigure::Server<Config>(nh));
 
   m_dyn_conf_server->setCallback(m_callback_type);
+
+  m_signal_taring_server = nh.advertiseService("signal_taring",&CartesianForceController<HardwareInterface>::signalTaringCallback,this);
+  m_target_wrench_subscriber = nh.subscribe("target_wrench",2,&CartesianForceController<HardwareInterface>::targetWrenchCallback,this);
+  m_ft_sensor_wrench_subscriber = nh.subscribe("ft_sensor_wrench",2,&CartesianForceController<HardwareInterface>::ftSensorWrenchCallback,this);
+
+  m_feedback_wrench_filtered_publisher =
+    std::make_shared<realtime_tools::RealtimePublisher<geometry_msgs::WrenchStamped> >(
+      nh, "ft_sensor_wrench_filtered", 3);
 
   return true;
 }
@@ -186,7 +190,7 @@ computeForceError()
   }
 
   // Superimpose target wrench and sensor wrench in base frame
-  return Base::displayInBaseLink(m_ft_sensor_wrench,m_new_ft_sensor_ref)
+  return Base::displayInBaseLink(m_ft_sensor_wrench_filtered,m_new_ft_sensor_ref)
     + target_wrench
     + compensateGravity();
 }
@@ -216,6 +220,26 @@ setFtSensorReferenceFrame(const std::string& new_ref)
       m_new_ft_sensor_ref);
 
   m_ft_sensor_transform = new_sensor_ref.Inverse() * sensor_ref;
+}
+
+template <class HardwareInterface>
+void CartesianForceController<HardwareInterface>::
+publishStateFeedback()
+{
+  // End-effector pose
+  auto wrench = m_ft_sensor_wrench_filtered;
+  if (m_feedback_wrench_filtered_publisher->trylock()){
+    m_feedback_wrench_filtered_publisher->msg_.header.stamp = ros::Time::now();
+    m_feedback_wrench_filtered_publisher->msg_.header.frame_id = m_ft_sensor_ref_link;
+    m_feedback_wrench_filtered_publisher->msg_.wrench.force.x = wrench[0];
+    m_feedback_wrench_filtered_publisher->msg_.wrench.force.y = wrench[1];
+    m_feedback_wrench_filtered_publisher->msg_.wrench.force.z = wrench[2];
+    m_feedback_wrench_filtered_publisher->msg_.wrench.torque.x = wrench[3];
+    m_feedback_wrench_filtered_publisher->msg_.wrench.torque.y = wrench[4];
+    m_feedback_wrench_filtered_publisher->msg_.wrench.torque.z = wrench[5];
+
+    m_feedback_wrench_filtered_publisher->unlockAndPublish();
+  }
 }
 
 template <class HardwareInterface>
@@ -273,6 +297,23 @@ ftSensorWrenchCallback(const geometry_msgs::WrenchStamped& wrench)
   m_ft_sensor_wrench[3] = tmp[3];
   m_ft_sensor_wrench[4] = tmp[4];
   m_ft_sensor_wrench[5] = tmp[5];
+
+  tmp[0] = m_wrench_filters[0].filter(m_ft_sensor_wrench[0]);
+  tmp[1] = m_wrench_filters[1].filter(m_ft_sensor_wrench[1]);
+  tmp[2] = m_wrench_filters[2].filter(m_ft_sensor_wrench[2]);
+  tmp[3] = m_wrench_filters[3].filter(m_ft_sensor_wrench[3]);
+  tmp[4] = m_wrench_filters[4].filter(m_ft_sensor_wrench[4]);
+  tmp[5] = m_wrench_filters[5].filter(m_ft_sensor_wrench[5]);
+  
+  m_ft_sensor_wrench_filtered[0] = tmp[0];
+  m_ft_sensor_wrench_filtered[1] = tmp[1];
+  m_ft_sensor_wrench_filtered[2] = tmp[2];
+  m_ft_sensor_wrench_filtered[3] = tmp[3];
+  m_ft_sensor_wrench_filtered[4] = tmp[4];
+  m_ft_sensor_wrench_filtered[5] = tmp[5];
+
+  publishStateFeedback();
+  
 }
 
 template <class HardwareInterface>
@@ -300,6 +341,18 @@ void CartesianForceController<HardwareInterface>::dynamicReconfigureCallback(Con
                                                                              uint32_t level)
 {
   m_hand_frame_control = config.hand_frame_control;
+
+
+  ROS_INFO("Reconfigure request. Updatig the parameters ...");
+
+  // Low-pass filters for the joint positions
+  m_wrench_filters.clear();
+  for (size_t i = 0; i < 6; ++i)
+  {
+    m_wrench_filters.emplace_back(config.low_pass_filter_coeff);
+    m_wrench_filters[i].reset(m_ft_sensor_wrench[i]);
+  }  
+  ROS_INFO("Low-pass filter coefficient: %f", config.low_pass_filter_coeff);
 }
 
 }

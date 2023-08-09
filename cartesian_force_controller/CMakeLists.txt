@@ -129,6 +129,7 @@ include_directories(
 ## Declare a C++ library
 add_library(${PROJECT_NAME}
   src/cartesian_force_controller.cpp
+  src/low_pass_filter.cpp
   include/cartesian_force_controller/cartesian_force_controller.h
   include/cartesian_force_controller/cartesian_force_controller.hpp
 )
