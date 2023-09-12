@@ -132,6 +132,9 @@ void CartesianForceController<HardwareInterface>::
 starting(const ros::Time& time)
 {
   Base::starting(time);
+
+  // Set target wrench to zero
+  m_target_wrench.setZero();
 }
 
 template <class HardwareInterface>
