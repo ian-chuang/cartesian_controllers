@@ -113,6 +113,14 @@ init(HardwareInterface* hw, ros::NodeHandle& nh)
   m_target_wrench.setZero();
   m_ft_sensor_wrench.setZero();
 
+  m_feedback_ft_sensor_wrench_filtered_publisher =
+    std::make_shared<realtime_tools::RealtimePublisher<geometry_msgs::WrenchStamped> >(
+      nh, "ft_sensor_wrench_filtered", 3);
+
+  m_feedback_target_wrench_filtered_publisher =
+    std::make_shared<realtime_tools::RealtimePublisher<geometry_msgs::WrenchStamped> >(
+      nh, "target_wrench_filtered", 3);
+
   // Connect dynamic reconfigure and overwrite the default values with values
   // on the parameter server. This is done automatically if parameters with
   // the according names exist.
@@ -133,8 +141,9 @@ starting(const ros::Time& time)
 {
   Base::starting(time);
 
-  // Set target wrench to zero
+  // wrenches to zero
   m_target_wrench.setZero();
+  m_target_wrench_filtered.setZero();
 }
 
 template <class HardwareInterface>
@@ -178,18 +187,26 @@ template <class HardwareInterface>
 ctrl::Vector6D CartesianForceController<HardwareInterface>::
 computeForceError()
 {
+  // apply low pass filter to target wrench and sensor wrench
+  processMeasurements();
+
+  if (m_publish_wrench_feedback)
+  {
+    publishStateFeedback();
+  }
+
   ctrl::Vector6D target_wrench;
   if (m_hand_frame_control) // Assume end-effector frame by convention
   {
-    target_wrench = Base::displayInBaseLink(m_target_wrench,Base::m_end_effector_link);
+    target_wrench = Base::displayInBaseLink(m_target_wrench_filtered,Base::m_end_effector_link);
   }
   else // Default to robot base frame
   {
-    target_wrench = m_target_wrench;
+    target_wrench = m_target_wrench_filtered;
   }
 
   // Superimpose target wrench and sensor wrench in base frame
-  return Base::displayInBaseLink(m_ft_sensor_wrench,m_new_ft_sensor_ref)
+  return Base::displayInBaseLink(m_ft_sensor_wrench_filtered,m_new_ft_sensor_ref)
     + target_wrench
     + compensateGravity();
 }
@@ -219,6 +236,53 @@ setFtSensorReferenceFrame(const std::string& new_ref)
       m_new_ft_sensor_ref);
 
   m_ft_sensor_transform = new_sensor_ref.Inverse() * sensor_ref;
+}
+
+template <class HardwareInterface>
+void CartesianForceController<HardwareInterface>::
+processMeasurements()
+{
+  // apply rule alpha*current_raw_value + (1-alpha)*last_smoothed_value;
+  m_target_wrench_filtered = m_target_wrench_low_pass_coefficient * m_target_wrench
+    + (1 - m_target_wrench_low_pass_coefficient) * m_target_wrench_filtered;
+  m_ft_sensor_wrench_filtered = m_ft_sensor_wrench_low_pass_coefficient * m_ft_sensor_wrench
+    + (1 - m_ft_sensor_wrench_low_pass_coefficient) * m_ft_sensor_wrench_filtered;
+}
+
+template <class HardwareInterface>
+void CartesianForceController<HardwareInterface>::
+publishStateFeedback()
+{
+  if (m_feedback_ft_sensor_wrench_filtered_publisher->trylock()){
+    m_feedback_ft_sensor_wrench_filtered_publisher->msg_.header.stamp = ros::Time::now();
+    m_feedback_ft_sensor_wrench_filtered_publisher->msg_.header.frame_id = m_new_ft_sensor_ref;
+    m_feedback_ft_sensor_wrench_filtered_publisher->msg_.wrench.force.x = m_ft_sensor_wrench_filtered[0];
+    m_feedback_ft_sensor_wrench_filtered_publisher->msg_.wrench.force.y = m_ft_sensor_wrench_filtered[1];
+    m_feedback_ft_sensor_wrench_filtered_publisher->msg_.wrench.force.z = m_ft_sensor_wrench_filtered[2];
+    m_feedback_ft_sensor_wrench_filtered_publisher->msg_.wrench.torque.x = m_ft_sensor_wrench_filtered[3];
+    m_feedback_ft_sensor_wrench_filtered_publisher->msg_.wrench.torque.y = m_ft_sensor_wrench_filtered[4];
+    m_feedback_ft_sensor_wrench_filtered_publisher->msg_.wrench.torque.z = m_ft_sensor_wrench_filtered[5];
+    m_feedback_ft_sensor_wrench_filtered_publisher->unlockAndPublish();
+  }
+
+  if (m_feedback_target_wrench_filtered_publisher->trylock()){
+    m_feedback_target_wrench_filtered_publisher->msg_.header.stamp = ros::Time::now();
+    if (m_hand_frame_control) 
+    {
+      m_feedback_target_wrench_filtered_publisher->msg_.header.frame_id = Base::m_end_effector_link;
+    }
+    else 
+    {
+      m_feedback_target_wrench_filtered_publisher->msg_.header.frame_id = Base::m_robot_base_link;
+    }
+    m_feedback_target_wrench_filtered_publisher->msg_.wrench.force.x = m_target_wrench_filtered[0];
+    m_feedback_target_wrench_filtered_publisher->msg_.wrench.force.y = m_target_wrench_filtered[1];
+    m_feedback_target_wrench_filtered_publisher->msg_.wrench.force.z = m_target_wrench_filtered[2];
+    m_feedback_target_wrench_filtered_publisher->msg_.wrench.torque.x = m_target_wrench_filtered[3];
+    m_feedback_target_wrench_filtered_publisher->msg_.wrench.torque.y = m_target_wrench_filtered[4];
+    m_feedback_target_wrench_filtered_publisher->msg_.wrench.torque.z = m_target_wrench_filtered[5];
+    m_feedback_target_wrench_filtered_publisher->unlockAndPublish();
+  }
 }
 
 template <class HardwareInterface>
@@ -303,6 +367,9 @@ void CartesianForceController<HardwareInterface>::dynamicReconfigureCallback(Con
                                                                              uint32_t level)
 {
   m_hand_frame_control = config.hand_frame_control;
+  m_publish_wrench_feedback = config.publish_wrench_feedback;
+  m_target_wrench_low_pass_coefficient = config.target_wrench_low_pass_coefficient;
+  m_ft_sensor_wrench_low_pass_coefficient = config.ft_sensor_wrench_low_pass_coefficient;
 }
 
 }

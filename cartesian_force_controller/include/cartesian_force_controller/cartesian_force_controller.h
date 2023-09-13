@@ -45,6 +45,7 @@
 
 // ROS
 #include <std_srvs/Trigger.h>
+#include <realtime_tools/realtime_publisher.h>
 
 // Dynamic reconfigure
 #include <dynamic_reconfigure/server.h>
@@ -102,6 +103,8 @@ class CartesianForceController : public virtual cartesian_controller_base::Carte
     ctrl::Vector6D        computeForceError();
     std::string           m_new_ft_sensor_ref;
     void setFtSensorReferenceFrame(const std::string& new_ref);
+    void processMeasurements();
+    void publishStateFeedback();
 
   private:
     ctrl::Vector6D        compensateGravity();
@@ -114,7 +117,11 @@ class CartesianForceController : public virtual cartesian_controller_base::Carte
     ros::Subscriber       m_target_wrench_subscriber;
     ros::Subscriber       m_ft_sensor_wrench_subscriber;
     ctrl::Vector6D        m_target_wrench;
+    ctrl::Vector6D        m_target_wrench_filtered;
+    double                m_target_wrench_low_pass_coefficient;
     ctrl::Vector6D        m_ft_sensor_wrench;
+    ctrl::Vector6D        m_ft_sensor_wrench_filtered;
+    double                m_ft_sensor_wrench_low_pass_coefficient;
     ctrl::Vector6D        m_weight_force;
     ctrl::Vector6D        m_grav_comp_during_taring;
     ctrl::Vector3D        m_center_of_mass;
@@ -128,6 +135,7 @@ class CartesianForceController : public virtual cartesian_controller_base::Carte
      * intuitive for tele-manipulation.
      */
     bool m_hand_frame_control;
+    bool m_publish_wrench_feedback;
 
     // Force control specific dynamic reconfigure
     typedef cartesian_force_controller::CartesianForceControllerConfig Config;
@@ -136,6 +144,12 @@ class CartesianForceController : public virtual cartesian_controller_base::Carte
 
     std::shared_ptr<dynamic_reconfigure::Server<Config> > m_dyn_conf_server;
     dynamic_reconfigure::Server<Config>::CallbackType m_callback_type;
+
+    realtime_tools::RealtimePublisherSharedPtr<geometry_msgs::WrenchStamped>
+      m_feedback_ft_sensor_wrench_filtered_publisher;
+
+    realtime_tools::RealtimePublisherSharedPtr<geometry_msgs::WrenchStamped>
+      m_feedback_target_wrench_filtered_publisher;
 };
 
 }
