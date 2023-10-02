@@ -111,7 +111,9 @@ init(HardwareInterface* hw, ros::NodeHandle& nh)
   m_grav_comp_during_taring = -m_weight_force;
 
   m_target_wrench.setZero();
+  m_target_wrench_filtered.setZero();
   m_ft_sensor_wrench.setZero();
+  m_ft_sensor_wrench_filtered.setZero();
 
   m_feedback_ft_sensor_wrench_filtered_publisher =
     std::make_shared<realtime_tools::RealtimePublisher<geometry_msgs::WrenchStamped> >(
@@ -144,6 +146,8 @@ starting(const ros::Time& time)
   // wrenches to zero
   m_target_wrench.setZero();
   m_target_wrench_filtered.setZero();
+  m_ft_sensor_wrench.setZero();
+  m_ft_sensor_wrench_filtered.setZero();
 }
 
 template <class HardwareInterface>
