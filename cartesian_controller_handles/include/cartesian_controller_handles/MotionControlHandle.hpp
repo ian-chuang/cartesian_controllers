@@ -95,11 +95,10 @@ bool MotionControlHandle<HardwareInterface>::
 init(HardwareInterface* hw, ros::NodeHandle& nh)
 {
   std::string robot_description;
-  urdf::Model robot_model;
   KDL::Tree   robot_tree;
 
   // Get configuration from parameter server
-  if (!ros::param::search("robot_description", robot_description))
+  if (!ros::param::search("controller_urdf_path", robot_description))
   {
     ROS_ERROR_STREAM("Searched enclosing namespaces for robot_description but nothing found");
     return false;
@@ -133,11 +132,8 @@ init(HardwareInterface* hw, ros::NodeHandle& nh)
   m_pose_publisher = nh.advertise<geometry_msgs::PoseStamped>(m_target_frame_topic,10);
 
   // Build a kinematic chain of the robot
-  if (!robot_model.initString(robot_description))
-  {
-    ROS_ERROR("Failed to parse urdf model from 'robot_description'");
-    return false;
-  }
+  const urdf::ModelInterfaceSharedPtr robot_model_ptr = urdf::parseURDFFile(robot_description);
+  urdf::ModelInterface robot_model = *robot_model_ptr;
   if (!kdl_parser::treeFromUrdfModel(robot_model,robot_tree))
   {
     ROS_ERROR("Failed to parse KDL tree from urdf model");

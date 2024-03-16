@@ -56,6 +56,8 @@
 #include <kdl/chain.hpp>
 #include <kdl/chainfksolverpos_recursive.hpp>
 
+#include <urdf_parser/urdf_parser.h>
+
 namespace cartesian_controller_handles
 {
 

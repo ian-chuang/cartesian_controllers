@@ -71,6 +71,8 @@
 #include <vector>
 #include <string>
 
+#include <urdf_parser/urdf_parser.h>
+
 namespace cartesian_controller_base
 {
 
